@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router";
 import { motion } from "motion/react";
 import { ArrowLeft, Mail, Check } from "lucide-react";
-import { getStoredUser } from "../../services/api";
+import { getStoredUser, otpApi } from "../../services/api";
 
 export function CustomerOTPVerification() {
   const navigate = useNavigate();
@@ -11,6 +11,7 @@ export function CustomerOTPVerification() {
   const [canResend, setCanResend] = useState(false);
   const [isVerifying, setIsVerifying] = useState(false);
   const [isVerified, setIsVerified] = useState(false);
+  const [error, setError] = useState("");
   const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
 
   useEffect(() => {
@@ -43,26 +44,39 @@ export function CustomerOTPVerification() {
     }
   };
 
-  const handleResend = () => {
+  const user = getStoredUser<{ email?: string; first_name?: string }>();
+
+  useEffect(() => {
+    if (user?.email) {
+      otpApi.send(user.email, "signup").catch(() => {});
+    }
+  }, []);
+
+  const handleResend = async () => {
     setTimer(60);
     setCanResend(false);
-    // TODO: Trigger resend OTP API
+    setError("");
+    if (user?.email) {
+      try { await otpApi.send(user.email, "signup"); } catch { /* ignore */ }
+    }
   };
-
-  const user = getStoredUser<{ email?: string; first_name?: string }>();
 
   const handleVerify = async () => {
     const otpCode = otp.join("");
     if (otpCode.length !== 6) return;
+    if (!user?.email) { navigate("/customer/home"); return; }
 
     setIsVerifying(true);
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-    setIsVerified(true);
-    setIsVerifying(false);
-
-    setTimeout(() => {
-      navigate("/customer/home");
-    }, 1200);
+    setError("");
+    try {
+      await otpApi.verify(user.email, otpCode, "signup");
+      setIsVerified(true);
+      setTimeout(() => navigate("/customer/home"), 1200);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Invalid or expired OTP");
+    } finally {
+      setIsVerifying(false);
+    }
   };
 
   return (
@@ -122,6 +136,10 @@ export function CustomerOTPVerification() {
                 />
               ))}
             </div>
+
+            {error && (
+              <p className="text-red-500 text-sm text-center mb-4">{error}</p>
+            )}
 
             {/* Timer & Resend */}
             <div className="text-center mb-8">

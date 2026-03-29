@@ -3,6 +3,7 @@ import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import { query } from "../db/pool";
 import { authenticateToken, AuthRequest } from "../middleware/auth";
+import { sendOTPEmail } from "../services/emailService";
 
 const router = Router();
 
@@ -216,6 +217,89 @@ router.post("/admin/login", async (req: Request, res: Response): Promise<void> =
     res.json({ success: true, token, admin: safeAdmin });
   } catch (err) {
     console.error("Admin login error:", err);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+});
+
+// ─── POST /api/auth/send-otp ─────────────────────────────────
+router.post("/send-otp", async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { email, purpose = "signup" } = req.body;
+    if (!email) {
+      res.status(400).json({ success: false, message: "Email is required" });
+      return;
+    }
+
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
+
+    await query(
+      `UPDATE otp_verifications SET is_used = TRUE
+       WHERE phone = $1 AND purpose = $2 AND is_used = FALSE`,
+      [email, purpose]
+    );
+
+    await query(
+      `INSERT INTO otp_verifications (phone, otp_code, purpose, expires_at)
+       VALUES ($1, $2, $3, $4)`,
+      [email, otp, purpose, expiresAt]
+    );
+
+    let name = "User";
+    const userResult = await query(
+      "SELECT first_name FROM users WHERE email = $1 UNION SELECT first_name FROM drivers WHERE email = $1 LIMIT 1",
+      [email]
+    );
+    if (userResult.rows.length > 0) name = userResult.rows[0].first_name;
+
+    await sendOTPEmail(email, otp, name);
+
+    res.json({ success: true, message: "OTP sent to email" });
+  } catch (err) {
+    console.error("Send OTP error:", err);
+    res.status(500).json({ success: false, message: "Failed to send OTP" });
+  }
+});
+
+// ─── POST /api/auth/verify-otp ───────────────────────────────
+router.post("/verify-otp", async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { email, otp, purpose = "signup" } = req.body;
+    if (!email || !otp) {
+      res.status(400).json({ success: false, message: "Email and OTP required" });
+      return;
+    }
+
+    const result = await query(
+      `SELECT * FROM otp_verifications
+       WHERE phone = $1 AND otp_code = $2 AND purpose = $3
+         AND is_used = FALSE AND expires_at > NOW()
+       ORDER BY created_at DESC LIMIT 1`,
+      [email, otp, purpose]
+    );
+
+    if (result.rows.length === 0) {
+      res.status(400).json({ success: false, message: "Invalid or expired OTP" });
+      return;
+    }
+
+    await query(
+      "UPDATE otp_verifications SET is_used = TRUE WHERE id = $1",
+      [result.rows[0].id]
+    );
+
+    await query(
+      "UPDATE users SET is_verified = TRUE WHERE email = $1",
+      [email]
+    );
+    await query(
+      "UPDATE drivers SET verification_status = 'approved' WHERE email = $1 AND verification_status = 'pending'",
+      [email]
+    );
+
+    res.json({ success: true, message: "OTP verified successfully" });
+  } catch (err) {
+    console.error("Verify OTP error:", err);
     res.status(500).json({ success: false, message: "Server error" });
   }
 });

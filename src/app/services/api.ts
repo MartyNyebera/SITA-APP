@@ -165,6 +165,22 @@ export const driversApi = {
     request(`/drivers/${driverId}/rides`),
 };
 
+// ─── OTP ─────────────────────────────────────────────────────
+
+export const otpApi = {
+  send: (email: string, purpose = "signup") =>
+    request<{ success: boolean; message: string }>("/auth/send-otp", {
+      method: "POST",
+      body: JSON.stringify({ email, purpose }),
+    }),
+
+  verify: (email: string, otp: string, purpose = "signup") =>
+    request<{ success: boolean; message: string }>("/auth/verify-otp", {
+      method: "POST",
+      body: JSON.stringify({ email, otp, purpose }),
+    }),
+};
+
 // ─── Users ───────────────────────────────────────────────────
 
 export const usersApi = {
