@@ -69,10 +69,10 @@ initSocketServer(httpServer);
 
 // ─── Start server ─────────────────────────────────────────────
 const PORT = parseInt(process.env.PORT || "3000");
-httpServer.listen(PORT, "127.0.0.1", () => {
-  console.log(`\n🛺 SITA Backend running on http://127.0.0.1:${PORT}`);
-  console.log(`📡 Socket.IO ready on ws://127.0.0.1:${PORT}`);
-  console.log(`🏥 Health: http://127.0.0.1:${PORT}/health\n`);
+httpServer.listen(PORT, "0.0.0.0", () => {
+  console.log(`\n🛺 SITA Backend running on port ${PORT}`);
+  console.log(`📡 Socket.IO ready on port ${PORT}`);
+  console.log(`🏥 Health: /health\n`);
 });
 
 export default app;
