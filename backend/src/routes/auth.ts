@@ -1,7 +1,7 @@
 import { Router, Request, Response } from "express";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
-import { query } from "../db/pool";
+import { query, supabase } from "../db/supabase";
 import { authenticateToken, AuthRequest } from "../middleware/auth";
 import { sendOTPEmail } from "../services/emailService";
 
@@ -25,30 +25,46 @@ router.post("/customer/register", async (req: Request, res: Response): Promise<v
       return;
     }
 
-    const existing = await query(
-      "SELECT id FROM users WHERE phone = $1 OR email = $2",
-      [phone, email || null]
-    );
-    if (existing.rows.length > 0) {
+    const { data: existing, error: existingError } = await supabase
+      .from('users')
+      .select('id')
+      .or(`phone.eq.${phone},email.eq.${email || null}`);
+    
+    if (existingError) {
+      throw new Error(`Database error: ${existingError.message}`);
+    }
+    
+    if (existing && existing.length > 0) {
       res.status(409).json({ success: false, message: "Phone or email already registered" });
       return;
     }
 
     const passwordHash = await bcrypt.hash(password, 10);
-    const result = await query(
-      `INSERT INTO users (first_name, last_name, phone, email, password_hash)
-       VALUES ($1, $2, $3, $4, $5) RETURNING id, first_name, last_name, phone, email`,
-      [firstName, lastName, phone, email || null, passwordHash]
-    );
+    const result = await query("users", {
+      select: "id, first_name, last_name, phone, email",
+      insert: {
+        first_name: firstName,
+        last_name: lastName,
+        phone,
+        email: email || null,
+        password_hash: passwordHash
+      },
+      single: true
+    });
 
     const user = result.rows[0];
     const token = signToken(user.id, "user");
 
-    await query(
-      `INSERT INTO audit_logs (actor_id, actor_type, action, target_type, target_id, details)
-       VALUES ($1, 'user', 'register', 'user', $1, $2)`,
-      [user.id, JSON.stringify({ phone })]
-    );
+    await query("audit_logs", {
+      insert: {
+        actor_id: user.id,
+        actor_type: "user",
+        action: "register",
+        target_type: "user",
+        target_id: user.id,
+        details: JSON.stringify({ phone })
+      }
+    });
 
     res.status(201).json({ success: true, token, user });
   } catch (err) {

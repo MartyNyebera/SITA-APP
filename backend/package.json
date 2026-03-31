@@ -10,6 +10,7 @@
     "db:setup": "psql -U postgres -c \"CREATE DATABASE sita_db;\" && psql -U postgres -d sita_db -f src/db/schema.sql"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.101.0",
     "bcryptjs": "^2.4.3",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",

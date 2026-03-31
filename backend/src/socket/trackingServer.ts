@@ -1,6 +1,6 @@
 import { Server as SocketServer, Socket } from "socket.io";
 import { Server as HttpServer } from "http";
-import { query } from "../db/pool";
+import { query, supabase } from "../db/supabase";
 
 // ─── In-memory driver state ───────────────────────────────────
 interface DriverState {
@@ -55,10 +55,15 @@ export function initSocketServer(httpServer: HttpServer): SocketServer {
       socket.join(`driver:${driverId}`);
 
       try {
-        await query(
-          `UPDATE drivers SET is_online = TRUE, current_latitude = $1, current_longitude = $2, location_updated_at = NOW() WHERE id = $3`,
-          [latitude, longitude, driverId]
-        );
+        await query("drivers", {
+          update: {
+            is_online: true,
+            current_latitude: latitude,
+            current_longitude: longitude,
+            location_updated_at: new Date().toISOString()
+          },
+          filter: { id: driverId }
+        });
       } catch (err) {
         console.error("[Socket] driver:online DB error:", err);
       }
@@ -94,16 +99,25 @@ export function initSocketServer(httpServer: HttpServer): SocketServer {
       io.emit("driver:location-update", { driverId, latitude, longitude });
 
       try {
-        await query(
-          `UPDATE drivers SET current_latitude = $1, current_longitude = $2, location_updated_at = NOW() WHERE id = $3`,
-          [latitude, longitude, driverId]
-        );
+        await query("drivers", {
+          update: {
+            current_latitude: latitude,
+            current_longitude: longitude,
+            location_updated_at: new Date().toISOString()
+          },
+          filter: { id: driverId }
+        });
 
-        await query(
-          `INSERT INTO driver_locations (driver_id, ride_id, latitude, longitude, speed, heading)
-           VALUES ($1, $2, $3, $4, $5, $6)`,
-          [driverId, state.currentRideId || null, latitude, longitude, speed || null, heading || null]
-        );
+        await query("driver_locations", {
+          insert: {
+            driver_id: driverId,
+            ride_id: state.currentRideId || null,
+            latitude,
+            longitude,
+            speed: speed || null,
+            heading: heading || null
+          }
+        });
 
         // Geofencing check if driver has an active ride
         if (state.currentRideId) {
